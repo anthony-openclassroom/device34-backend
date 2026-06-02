@@ -1,0 +1,160 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+  schedule:
+    - cron: '0 8 * * 1'
+
+permissions:
+  contents: write
+  checks: write
+  packages: write
+  issues: write
+  pull-requests: write
+
+jobs:
+  # ─── Spring Boot ────────────────────────────────────────────────────────────
+
+  test-java:
+    name: Tests Spring Boot
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Setup Java
+        uses: actions/setup-java@v5
+        with:
+          java-version: "21"
+          distribution: temurin
+
+      - name: Cache Gradle
+        uses: actions/cache@v5
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+            .gradle
+          key: java-${{ runner.os }}-${{ hashFiles('**/*.gradle*') }}
+          restore-keys: java-${{ runner.os }}-
+
+      - name: Run tests
+        run: ./gradlew test
+
+      - name: Publish test report
+        uses: dorny/test-reporter@v3
+        if: always()
+        with:
+          name: Spring Boot Tests
+          path: build/test-results/test/*.xml
+          reporter: java-junit
+
+  # ─── SonarCloud ─────────────────────────────────────────────────────────────
+
+  sonarcloud:
+    name: SonarCloud Analysis
+    runs-on: ubuntu-latest
+    needs: test-java
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Setup Java
+        uses: actions/setup-java@v5
+        with:
+          java-version: "21"
+          distribution: temurin
+
+      - name: Cache Gradle
+        uses: actions/cache@v5
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+            .gradle
+          key: java-${{ runner.os }}-${{ hashFiles('**/*.gradle*') }}
+          restore-keys: java-${{ runner.os }}-
+
+      - name: Run tests + JaCoCo coverage
+        run: ./gradlew test jacocoTestReport
+
+      - name: SonarCloud Analysis
+        run: ./gradlew sonar
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+
+  # ─── Build Docker ────────────────────────────────────────────────────────────
+
+  build:
+    name: Build Docker image
+    runs-on: ubuntu-latest
+    needs: test-java
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Login to GitHub Container Registry
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Docker metadata (tags)
+        id: meta
+        uses: docker/metadata-action@v6
+        with:
+          images: ghcr.io/${{ github.repository }}
+          tags: |
+            type=sha
+            type=ref,event=branch
+            type=ref,event=pr
+
+      - name: Build and push
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+
+  # ─── Release ────────────────────────────────────────────────────────────────
+
+  release:
+    name: Release
+    runs-on: ubuntu-latest
+    needs: build
+    if: github.ref == 'refs/heads/main'
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: "20"
+
+      - name: Run semantic-release
+        id: semantic
+        uses: cycjimmy/semantic-release-action@v6
+        with:
+          extra_plugins: |
+            @semantic-release/changelog
+            @semantic-release/git
+            @semantic-release/exec
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Re-tag Docker image with semantic version
+        if: steps.semantic.outputs.new_release_published == 'true'
+        env:
+          VERSION: ${{ steps.semantic.outputs.new_release_version }}
+        run: |
+          SHORT_SHA=${GITHUB_SHA:0:7}
+          echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
+          docker pull ghcr.io/${{ github.repository }}:sha-${SHORT_SHA}
+          docker tag  ghcr.io/${{ github.repository }}:sha-${SHORT_SHA} ghcr.io/${{ github.repository }}:${VERSION}
+          docker push ghcr.io/${{ github.repository }}:${VERSION}
