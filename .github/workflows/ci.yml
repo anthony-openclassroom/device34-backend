@@ -4,14 +4,11 @@ on:
   push:
   pull_request:
   schedule:
-    - cron: '0 8 * * 1'
+    - cron: "0 8 * * 1"
 
-permissions:
-  contents: write
-  checks: write
-  packages: write
-  issues: write
-  pull-requests: write
+# Principe du moindre privilège : pas de permissions globales,
+# chaque job déclare uniquement ce dont il a besoin (githubactions:S6898)
+permissions: {}
 
 jobs:
   # ─── Spring Boot ────────────────────────────────────────────────────────────
@@ -19,6 +16,8 @@ jobs:
   test-java:
     name: Tests Spring Boot
     runs-on: ubuntu-latest
+    permissions:
+      checks: write # nécessaire pour dorny/test-reporter
     steps:
       - uses: actions/checkout@v6
 
@@ -55,6 +54,8 @@ jobs:
     name: SonarCloud Analysis
     runs-on: ubuntu-latest
     needs: test-java
+    permissions:
+      contents: read # checkout uniquement
     steps:
       - uses: actions/checkout@v6
         with:
@@ -91,6 +92,9 @@ jobs:
     name: Build Docker image
     runs-on: ubuntu-latest
     needs: test-java
+    permissions:
+      contents: read # checkout
+      packages: write # push sur ghcr.io
     steps:
       - uses: actions/checkout@v6
 
@@ -126,6 +130,11 @@ jobs:
     runs-on: ubuntu-latest
     needs: build
     if: github.ref == 'refs/heads/main'
+    permissions:
+      contents: write # semantic-release crée tags et changelog
+      issues: write # semantic-release peut commenter les issues
+      pull-requests: write # semantic-release peut commenter les PRs
+      packages: write # re-tag de l'image Docker sur ghcr.io
     steps:
       - name: Checkout
         uses: actions/checkout@v6
@@ -152,9 +161,12 @@ jobs:
         if: steps.semantic.outputs.new_release_published == 'true'
         env:
           VERSION: ${{ steps.semantic.outputs.new_release_version }}
+          # GH_TOKEN déclaré en env: pour éviter l'interpolation directe du secret
+          # dans le bloc run (bonne pratique de sécurité, cf. githubactions:S7636)
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           SHORT_SHA=${GITHUB_SHA:0:7}
-          echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
+          echo "${GH_TOKEN}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
           docker pull ghcr.io/${{ github.repository }}:sha-${SHORT_SHA}
           docker tag  ghcr.io/${{ github.repository }}:sha-${SHORT_SHA} ghcr.io/${{ github.repository }}:${VERSION}
           docker push ghcr.io/${{ github.repository }}:${VERSION}
