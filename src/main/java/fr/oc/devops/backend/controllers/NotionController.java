@@ -25,7 +25,7 @@ public class NotionController implements NotionsApi {
 
         Notion result = service.create(mapper.map(newNotion, Notion.class));
 
-        return ResponseEntity.ok(result);
+        return ResponseEntity.status(201).body(result);
     }
 
     @Override

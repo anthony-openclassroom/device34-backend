@@ -25,7 +25,7 @@ public class WorkshopController implements WorkshopsApi {
 
         Workshop result = service.create(mapper.map(newWorkshop, Workshop.class));
 
-        return ResponseEntity.ok(result);
+        return ResponseEntity.status(201).body(result);
     }
 
     @Override

@@ -1,14 +1,10 @@
 package fr.oc.devops.backend.services;
 
 import fr.oc.devops.backend.models.Notion;
-import fr.oc.devops.backend.models.NotionModel;
 import fr.oc.devops.backend.models.Workshop;
 import fr.oc.devops.backend.models.WorkshopModel;
-import fr.oc.devops.backend.repositories.NotionRepository;
 import fr.oc.devops.backend.repositories.WorkshopRepository;
-import org.aspectj.lang.annotation.Before;
 import org.junit.jupiter.api.Assertions;
-import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -18,7 +14,6 @@ import org.mockito.Mockito;
 import org.mockito.Spy;
 import org.modelmapper.ModelMapper;
 import org.springframework.test.context.junit.jupiter.SpringExtension;
-import org.springframework.ui.ModelMap;
 
 import java.util.List;
 
