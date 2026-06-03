@@ -11,6 +11,8 @@ jobs:
     uses: anthony-openclassroom/device34-cicd/.github/workflows/template-test.yml@main
     with:
       project-type: spring-boot
+    permissions:
+      contents: write
 
   build:
     needs: test
